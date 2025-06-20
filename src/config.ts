@@ -44,7 +44,7 @@ export const TITLE_CLOZE_TAG = 'srs/cloze-t';
 export const ANKI_FIELD_FOR_TITLE_KEY = 'ANKI_FIELD_FOR_TITLE_KEY';
 export const ANKI_FIELD_FOR_TITLE = 'Title';
 
-// --- internals below this ---
+// ... internals below this ---
 export const METADATA_SCHEMA_VERSION = 2;
 export const ANKI_CONNECT_RETRIES = 1;
 export const ANKI_CONNECT_VERSION = 6;
@@ -52,5 +52,9 @@ export const ANKI_CONNECT_FINDNOTES = 'findNotes';
 export const ANKI_CONNECT_NOTESINFO = 'notesInfo';
 export const ANKI_CONNECT_ADDNOTES = 'addNotes';
 export const ANKI_CONNECT_UPDATENOTES = 'updateNoteFields';
+export const ANKI_CONNECT_DELETENOTES = 'deleteNotes';
 
 export const NO_NID = -1;
+
+export const ANKI_FIELD_FOR_UID_KEY = 'ANKI_FIELD_FOR_UID_KEY';
+export const ANKI_FIELD_FOR_UID = 'BlockUID';

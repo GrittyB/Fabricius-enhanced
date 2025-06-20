@@ -7,6 +7,7 @@ import {
   updateNote,
   batchAddNotes,
   invokeAnkiConnect,
+  batchDeleteNotes,
 } from './anki';
 import {config} from './config';
 import {
@@ -97,13 +98,17 @@ const syncNow = async (extensionAPI: any) => {
       backField
   );
 
-  // STEP 1: Get all blocks that reference CLOZE_TAG and BASIC_TAG
-  // Useful attributes in these blocks: uid, string, time (unix epoch)
+  // STEP 1: Roam 查询函数拿到三类 block：单独 cloze、basic、grouped cloze 子块。
+
+  // 在 Roam 页面顶部弹出一条提示，告知用户「开始同步」。
   render({
     id: 'syncer',
     content: 'Fabricius: starting sync',
     intent: Intent.SUCCESS,
   });
+
+  // 查询所有含 #srs/cloze（CLOZE_TAG）的块。
+
   const singleBlocks: AugmentedBlock[] = await retry(
     () => pullBlocksWithTag(config.CLOZE_TAG), // TODO: not using settings panel
     config.ANKI_CONNECT_RETRIES
@@ -113,6 +118,8 @@ const syncNow = async (extensionAPI: any) => {
     () => pullBlocksWithTag(config.BASIC_TAG),
     config.ANKI_CONNECT_RETRIES
   );
+  
+
   // groupBlocks are augmented with information from their parent.
   const groupBlocks = await retry(
     () => pullBlocksUnderTag(groupTag, titleTag),
@@ -129,19 +136,26 @@ const syncNow = async (extensionAPI: any) => {
     () => Promise.all(blocks.map(b => processSingleBlock(b))),
     config.ANKI_CONNECT_RETRIES
   );
+  
+  // 查到带有 nid 的 Roam 块 : 已同步过则得到 nid，否则 NO_NID。
   const blocksWithNids = blockWithNid.filter(
     ([_, nid]) => nid !== config.NO_NID
   );
   const blocksWithNoNids = blockWithNid
     .filter(([_, nid]) => nid === config.NO_NID)
     .map(b => b[0]);
+
+  // 现有 Anki 笔记 ： 拿到现有 notes，实现 Roam↔Anki 映射
   const existingNotes = await retry(
     () => batchFindNotes(blocksWithNids),
     config.ANKI_CONNECT_RETRIES
   );
 
-  // STEP 2: For blocks that exist in both Anki and Roam, generate `blockWithNote`.
+
+  // STEP 2: Generate `blockWithNote` : For blocks that exist in both Anki and Roam, .
   // The schema for `blockWithNote` is shown in `NOTES.md`.
+
+  // 数组 ：
   const blockWithNote: BlockWithNote[] = blocksWithNids.map((block, i) => {
     const _existingNote = existingNotes[i];
     const noteMetadata = JSON.parse(
@@ -224,6 +238,60 @@ const syncNow = async (extensionAPI: any) => {
     '[syncNow] updateExistingInAnki: ' + JSON.stringify(updateExistingInAnki)
   ); // should be an array of nulls if there are no errors
 
+  // STEP 4.5: Delete Anki notes whose corresponding Roam blocks have been removed
+  const currentBlockUids = new Set(blocks.map(b => b.uid));
+  // Retrieve all notes in the target deck (could be large, but required to detect removals)
+  const deckNoteIds: number[] = await retry(
+    () =>
+      invokeAnkiConnect(config.ANKI_CONNECT_FINDNOTES, config.ANKI_CONNECT_VERSION, {
+        query: `deck:"${deck}"`,
+      }),
+    config.ANKI_CONNECT_RETRIES
+  ) as number[];
+
+  let deckNotesInfo: any[] = [];
+  if (deckNoteIds.length > 0) {
+    deckNotesInfo = (await retry(
+      () =>
+        invokeAnkiConnect(config.ANKI_CONNECT_NOTESINFO, config.ANKI_CONNECT_VERSION, {
+          notes: deckNoteIds,
+        }),
+      config.ANKI_CONNECT_RETRIES
+    )) as any[];
+  }
+  // Collect notes that were created by Fabricius (they contain metadata or UID field)
+  const notesToDelete: number[] = [];
+  deckNotesInfo.forEach(note => {
+    let noteUid: string | null = null;
+    if (
+      note.fields &&
+      note.fields[metadataField] &&
+      note.fields[metadataField].value
+    ) {
+      try {
+        const md = JSON.parse(note.fields[metadataField].value);
+        if (md && md.block_uid) {
+          noteUid = md.block_uid;
+        }
+      } catch (e) {
+        // not JSON, ignore
+      }
+    }
+    if (!noteUid && note.fields && note.fields[config.ANKI_FIELD_FOR_UID]) {
+      noteUid = note.fields[config.ANKI_FIELD_FOR_UID].value;
+    }
+    if (noteUid && !currentBlockUids.has(noteUid)) {
+      notesToDelete.push(Number(note.noteId));
+    }
+  });
+  if (notesToDelete.length > 0) {
+    console.log(`[syncNow] deleting notes: ${JSON.stringify(notesToDelete)}`);
+    await retry(
+      () => batchDeleteNotes(notesToDelete),
+      config.ANKI_CONNECT_RETRIES
+    );
+  }
+
   // STEP 5: Update Roam's outdated blocks
   const updateExistingInRoam = await retry(
     () =>
@@ -275,7 +343,7 @@ const syncNow = async (extensionAPI: any) => {
   // STEP 7: Notify user
   render({
     id: 'syncer',
-    content: `Fabricius: synced ${blocks.length} blocks (${blocksWithNoNids.length} new, ${newerInRoam.length} updated)`,
+    content: `Fabricius: synced ${blocks.length} blocks (${blocksWithNoNids.length} new, ${newerInRoam.length} updated, ${notesToDelete.length} deleted)`,
     intent: Intent.SUCCESS,
   });
   console.log('[syncNow] finished');
@@ -437,7 +505,7 @@ const panelConfig = {
         type: 'input',
         placeholder: config.ANKI_FIELD_FOR_BACK,
       },
-    },
+    }
   ],
 };
 
@@ -477,6 +545,7 @@ const retry = async (fn: () => Promise<any>, n: number) => {
   throw new Error(`Failed retrying ${n} times`);
 };
 
+// 从一个 Promise 中获取字符串结果，如果结果是空或 null，就返回一个默认值。
 const getOrDefault = async (r: Promise<string>, d: string): Promise<string> => {
   const res = await r;
   if (res === null || res.trim() === '') {

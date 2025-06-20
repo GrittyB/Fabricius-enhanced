@@ -173,6 +173,7 @@ const blockToAnkiSyntax = (
   // TODO: extract tags in a certain format. use namespaces.
   fieldsObj[clozeTextField] = convertToCloze(block.string);
   fieldsObj[clozeTagField] = noteMetadata(block);
+  fieldsObj[config.ANKI_FIELD_FOR_UID] = block.uid;
   // TODO This means parent is only updated if child is updated.
   if ('parentBlock' in block) {
     fieldsObj[groupHeaderField] = block.parentBlock.string
@@ -226,9 +227,19 @@ const blockToBasicAnkiSyntax = (
   }
   // Add metadata
   fieldsObj[metadataField] = noteMetadata(block);
+  fieldsObj[config.ANKI_FIELD_FOR_UID] = block.uid;
   return {
     deckName: deck,
     modelName: model,
     fields: fieldsObj,
   };
+};
+
+export const batchDeleteNotes = async (noteIds: number[]): Promise<Number | null | Array<Number>> => {
+  if (noteIds.length === 0) return Promise.resolve([]);
+  return invokeAnkiConnect(
+    config.ANKI_CONNECT_DELETENOTES,
+    config.ANKI_CONNECT_VERSION,
+    {notes: noteIds}
+  );
 };

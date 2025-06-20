@@ -32,4 +32,7 @@ export declare const ANKI_CONNECT_FINDNOTES = "findNotes";
 export declare const ANKI_CONNECT_NOTESINFO = "notesInfo";
 export declare const ANKI_CONNECT_ADDNOTES = "addNotes";
 export declare const ANKI_CONNECT_UPDATENOTES = "updateNoteFields";
+export declare const ANKI_CONNECT_DELETENOTES = "deleteNotes";
 export declare const NO_NID = -1;
+export declare const ANKI_FIELD_FOR_UID_KEY = "ANKI_FIELD_FOR_UID_KEY";
+export declare const ANKI_FIELD_FOR_UID = "BlockUID";
